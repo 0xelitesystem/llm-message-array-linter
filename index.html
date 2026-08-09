@@ -1,0 +1,1622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Message Array Linter - find the block that broke your Anthropic 400 and every legal truncation point</title>
+<meta name="description" content="Paste the Anthropic messages array from a request that returned a 400. Get the exact block index that broke it, the tool_use to tool_result span map, and every index where the transcript can legally be cut without manufacturing a new 400.">
+<link rel="canonical" href="https://0xelitesystem.github.io/llm-message-array-linter/">
+<meta property="og:title" content="LLM Message Array Linter - find the block that broke your Anthropic 400 and every legal truncation point">
+<meta property="og:description" content="Paste the Anthropic messages array from a request that returned a 400. Get the exact block index that broke it, the tool_use to tool_result span map, and every index where the transcript can legally be cut.">
+<meta property="og:url" content="https://0xelitesystem.github.io/llm-message-array-linter/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "LLM Message Array Linter",
+  "description": "Client-side linter for the Anthropic Messages API messages array. Finds the exact content block that caused a 400, walks tool_use to tool_result spans, flags orphaned blocks and partially answered parallel fan-outs, and computes every index where the conversation can legally be truncated.",
+  "url": "https://0xelitesystem.github.io/llm-message-array-linter/",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Any",
+  "browserRequirements": "Requires JavaScript",
+  "isAccessibleForFree": true,
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "author": {
+    "@type": "Organization",
+    "name": "elitesystem.ai",
+    "url": "https://elitesystem.ai"
+  }
+}
+</script>
+<script>
+/* Theme restore. Runs at load, before first paint, not only in the click handler. */
+(function () {
+  try {
+    var saved = window.localStorage.getItem('lmal-theme');
+    if (saved === 'light' || saved === 'dark') {
+      document.documentElement.setAttribute('data-theme', saved);
+    }
+  } catch (err) {
+    /* localStorage can throw in privacy modes; dark default still applies. */
+  }
+})();
+</script>
+<style>
+:root {
+  --bg: #0d1117;
+  --bg-raised: #151b23;
+  --bg-sunken: #0a0e14;
+  --border: #2a323d;
+  --border-strong: #3d4854;
+  --text: #e6edf3;
+  --text-dim: #9aa7b4;
+  --text-faint: #6e7d8c;
+  --accent: #6ea8ff;
+  --accent-dim: #1f3557;
+  --error: #ff7b72;
+  --error-bg: #2d1618;
+  --suspect: #ffa657;
+  --suspect-bg: #2e2013;
+  --warn: #e3b341;
+  --warn-bg: #2b2412;
+  --ok: #56d364;
+  --ok-bg: #12261a;
+  --info: #79c0ff;
+  --info-bg: #12233a;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-raised: #f6f8fa;
+  --bg-sunken: #eef1f5;
+  --border: #d5dbe2;
+  --border-strong: #b6c0cb;
+  --text: #14181d;
+  --text-dim: #4c5763;
+  --text-faint: #6d7987;
+  --accent: #0a58c8;
+  --accent-dim: #dbe7fb;
+  --error: #a4232b;
+  --error-bg: #fdeaea;
+  --suspect: #8a4b06;
+  --suspect-bg: #fdf0e2;
+  --warn: #7a5c04;
+  --warn-bg: #fbf3d8;
+  --ok: #1a6f2c;
+  --ok-bg: #e5f5e8;
+  --info: #0a58c8;
+  --info-bg: #e4eefc;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+a { color: var(--accent); }
+a:hover { text-decoration: underline; }
+code, pre, .mono { font-family: var(--mono); font-size: 0.9em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+header.site {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  padding: 20px 0 22px;
+}
+.head-row { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+h1 { font-size: 1.55rem; line-height: 1.25; margin: 0 0 8px; letter-spacing: -0.01em; }
+.tagline { margin: 0; color: var(--text-dim); max-width: 68ch; }
+.tagline strong { color: var(--text); font-weight: 600; }
+.scope { margin: 10px 0 0; font-size: 0.85rem; color: var(--text-faint); }
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--text);
+  padding: 8px 14px;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent-dim); border-color: var(--accent); color: var(--text); font-weight: 600; }
+button.small { padding: 5px 10px; font-size: 0.85rem; }
+
+h2 { font-size: 1.2rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+h3 { font-size: 1.02rem; margin: 26px 0 8px; letter-spacing: -0.01em; }
+section { padding: 26px 0; border-bottom: 1px solid var(--border); }
+section > .wrap > p.lead { margin: 0 0 14px; color: var(--text-dim); max-width: 76ch; }
+
+label.field { display: block; font-weight: 600; font-size: 0.9rem; margin: 0 0 6px; }
+textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  padding: 12px;
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+select, input[type="number"] {
+  font: inherit;
+  padding: 7px 10px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+input[type="number"] { width: 8ch; }
+/* A select sizes itself to its widest option, which overflows a 360px viewport.
+   Let it shrink instead. */
+select { max-width: 100%; min-width: 0; }
+#sample-select { flex: 1 1 200px; }
+.controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 0 0 12px; }
+.controls-after { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 12px 0 0; }
+
+details.help { margin: 14px 0 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); }
+details.help > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; font-size: 0.92rem; }
+details.help .body { padding: 0 14px 12px; color: var(--text-dim); font-size: 0.92rem; }
+details.help ul { margin: 8px 0; padding-left: 20px; }
+details.help li { margin: 4px 0; }
+
+.notice { border-radius: 8px; padding: 10px 14px; margin: 12px 0 0; font-size: 0.92rem; border: 1px solid var(--border); }
+.notice.err { border-color: var(--error); background: var(--error-bg); color: var(--error); }
+.notice.note { border-color: var(--info); background: var(--info-bg); color: var(--info); }
+.hidden { display: none !important; }
+
+.empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  padding: 26px 18px;
+  text-align: center;
+  color: var(--text-dim);
+}
+.empty p { margin: 0 0 6px; }
+
+.verdict { border-radius: 10px; padding: 14px 16px; margin: 0 0 16px; border: 1px solid var(--border); background: var(--bg-raised); }
+.verdict.bad { border-color: var(--error); background: var(--error-bg); }
+.verdict.good { border-color: var(--ok); background: var(--ok-bg); }
+.verdict .headline { font-weight: 700; font-size: 1.02rem; margin: 0 0 4px; }
+.verdict .sub { margin: 0; color: var(--text-dim); font-size: 0.92rem; }
+.verdict.bad .sub, .verdict.good .sub { color: inherit; opacity: 0.9; }
+
+.tiles { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 6px; }
+.tile { flex: 1 1 120px; min-width: 110px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--bg-raised); }
+.tile .n { font-size: 1.35rem; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.tile .k { font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
+.tile.e .n { color: var(--error); }
+.tile.s .n { color: var(--suspect); }
+.tile.w .n { color: var(--warn); }
+.tile.g .n { color: var(--ok); }
+
+ol.findings { list-style: none; margin: 0; padding: 0; }
+ol.findings li {
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0 0 10px;
+  background: var(--bg-raised);
+}
+li.sev-error { border-left-color: var(--error); }
+li.sev-suspect { border-left-color: var(--suspect); }
+li.sev-warning { border-left-color: var(--warn); }
+li.sev-info { border-left-color: var(--info); }
+.f-top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.f-title { font-weight: 650; }
+.f-detail { margin: 6px 0 0; color: var(--text-dim); font-size: 0.93rem; overflow-wrap: anywhere; }
+.f-src { margin: 8px 0 0; font-size: 0.82rem; color: var(--text-faint); }
+
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.badge.error { color: var(--error); background: var(--error-bg); }
+.badge.suspect { color: var(--suspect); background: var(--suspect-bg); }
+.badge.warning { color: var(--warn); background: var(--warn-bg); }
+.badge.info { color: var(--info); background: var(--info-bg); }
+.badge.ok { color: var(--ok); background: var(--ok-bg); }
+.path { font-family: var(--mono); font-size: 0.84rem; color: var(--text); background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; overflow-wrap: anywhere; }
+
+.scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 0.9rem; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); font-weight: 700; white-space: nowrap; }
+tbody tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.row-illegal td { background: var(--error-bg); }
+tr.row-target td { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.timeline { display: flex; gap: 8px; padding: 12px; min-width: min-content; }
+.tl-msg { flex: 0 0 auto; min-width: 132px; max-width: 200px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--bg-sunken); }
+.tl-msg .tl-i { font-size: 0.72rem; color: var(--text-faint); font-family: var(--mono); }
+.tl-msg .tl-role { font-weight: 700; font-size: 0.85rem; }
+.tl-msg ul { margin: 6px 0 0; padding: 0; list-style: none; }
+.tl-msg li { font-family: var(--mono); font-size: 0.72rem; color: var(--text-dim); overflow-wrap: anywhere; }
+.tl-msg.span-open { border-color: var(--accent); }
+.tl-msg.span-close { border-color: var(--accent); border-style: dashed; }
+.tl-msg.has-error { border-color: var(--error); }
+
+.quote {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border-strong);
+  background: var(--bg-sunken);
+  color: var(--text);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.receipt {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--text-faint);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0 0 12px;
+  background: var(--bg-raised);
+}
+.receipt h3 { margin: 0 0 4px; font-size: 0.98rem; }
+.stamp { font-size: 0.76rem; color: var(--text-faint); font-family: var(--mono); }
+.sep-note { border: 1px solid var(--border-strong); border-radius: 8px; padding: 12px 14px; margin: 0 0 18px; background: var(--bg-sunken); color: var(--text-dim); font-size: 0.92rem; }
+.sep-note strong { color: var(--text); }
+
+ul.plain { margin: 8px 0 0; padding-left: 20px; color: var(--text-dim); }
+ul.plain li { margin: 5px 0; }
+
+footer.site { padding: 22px 0 34px; color: var(--text-dim); font-size: 0.9rem; }
+footer.site nav { display: flex; gap: 8px 18px; flex-wrap: wrap; margin: 0 0 8px; }
+
+@media (max-width: 560px) {
+  h1 { font-size: 1.3rem; }
+  .tile { flex: 1 1 100%; }
+  body { font-size: 15px; }
+}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap head-row">
+    <div>
+      <h1>LLM Message Array Linter</h1>
+      <p class="tagline">Paste the <code>messages</code> array from the request that just returned a 400 and get the <strong>exact block index that broke it</strong>, plus a <strong>truncation map</strong> showing every index where the conversation can legally be cut.</p>
+      <p class="scope">Anthropic Messages API only. Runs entirely in your browser: no upload, no network request, no API key.</p>
+    </div>
+    <button id="theme-toggle" type="button" class="small" aria-pressed="false">Switch to light</button>
+  </div>
+</header>
+
+<main>
+
+<section id="input-section">
+  <div class="wrap">
+    <h2>1. Paste the messages array</h2>
+    <p class="lead">Accepts a bare JSON array, or a whole request body with a <code>messages</code> key (the rest of the body is ignored).</p>
+
+    <div class="controls">
+      <label class="field" for="sample-select" style="margin:0;">Sample</label>
+      <select id="sample-select" aria-label="Choose a sample transcript"></select>
+      <button id="load-sample" type="button">Load sample</button>
+      <button id="clear-input" type="button">Clear</button>
+    </div>
+
+    <label class="field" for="messages-input">messages array (JSON)</label>
+    <textarea id="messages-input" spellcheck="false" autocapitalize="off" autocorrect="off"
+      placeholder='[{"role":"user","content":"..."},{"role":"assistant","content":[{"type":"tool_use","id":"toolu_example_1","name":"get_weather","input":{}}]}]'
+      aria-describedby="input-help-summary"></textarea>
+
+    <div class="controls-after">
+      <button id="analyze" type="button" class="primary">Analyze</button>
+      <span id="parse-note" class="stamp"></span>
+    </div>
+
+    <div id="parse-error" class="notice err hidden" role="alert"></div>
+
+    <details class="help">
+      <summary id="input-help-summary">What gets checked, and what a "span" means</summary>
+      <div class="body">
+        <p>The linter walks the transcript as <strong>tool_use to tool_result spans</strong> rather than as a flat list of messages. A span opens at an assistant message containing one or more <code>tool_use</code> blocks and closes at the user message that carries a <code>tool_result</code> for every one of those ids. The atomic unit therefore crosses a message boundary by definition, and it fans out under parallel tool use.</p>
+        <ul>
+          <li><strong>Orphaned tool_use</strong> - a <code>tool_use</code> id with no matching <code>tool_result</code>.</li>
+          <li><strong>Orphaned tool_result</strong> - a <code>tool_use_id</code> that matches no earlier <code>tool_use</code>.</li>
+          <li><strong>Partially answered fan-out</strong> - N parallel <code>tool_use</code> blocks, fewer than N results. Each block passes a naive per-block validator; the request still fails.</li>
+          <li><strong>Misplaced results</strong> - results that are not in the message immediately after their <code>tool_use</code>, or split across several user messages.</li>
+          <li><strong>Ordering</strong> - text placed before <code>tool_result</code> in the same user message.</li>
+          <li><strong>Thinking blocks</strong> - reconstructed or unsigned <code>thinking</code> / <code>redacted_thinking</code> blocks on the most recent assistant message.</li>
+          <li><strong>Trailing assistant turn</strong> - an array that ends on an assistant message is a prefill.</li>
+        </ul>
+        <p>Every rule above is quoted, with its source URL and the date it was checked, in the Receipts section further down.</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<section id="results-section">
+  <div class="wrap">
+    <h2>2. Result</h2>
+
+    <div id="empty-state" class="empty">
+      <p><strong>Nothing analyzed yet.</strong></p>
+      <p>Load a sample or paste your own array, then press Analyze.</p>
+    </div>
+
+    <div id="results" class="hidden" aria-live="polite">
+      <div id="verdict" class="verdict"></div>
+      <div class="tiles" id="tiles"></div>
+
+      <h3>Findings</h3>
+      <div class="controls">
+        <button id="copy-findings" type="button" class="small">Copy findings as text</button>
+        <span id="copy-findings-msg" class="stamp" role="status"></span>
+      </div>
+      <ol class="findings" id="findings-list"></ol>
+
+      <h3>Span map</h3>
+      <p class="lead">One card per message, in order. Blue solid border opens a span, blue dashed border closes one.</p>
+      <div class="scroll-x"><div class="timeline" id="timeline"></div></div>
+
+      <h3>Truncation map</h3>
+      <p class="lead">Each row is a candidate new start index: keep <code>messages[i..end]</code>, drop everything before it. A cut is <strong>span-legal</strong> only when no surviving <code>tool_result</code> would lose the <code>tool_use</code> it answers, which is what makes a cut inside a parallel fan-out illegal.</p>
+      <div class="controls">
+        <label class="field" for="keep-last" style="margin:0;">Keep last</label>
+        <input type="number" id="keep-last" min="1" step="1" value="4" aria-describedby="keep-last-out">
+        <span class="stamp">messages</span>
+        <button id="find-cut" type="button" class="small">Find nearest legal cut</button>
+        <button id="copy-cuts" type="button" class="small">Copy legal cut indices</button>
+        <span id="copy-cuts-msg" class="stamp" role="status"></span>
+      </div>
+      <p id="keep-last-out" class="notice note hidden" role="status"></p>
+      <div class="scroll-x"><table id="cuts-table">
+        <thead><tr>
+          <th scope="col">Cut at</th>
+          <th scope="col">Head role</th>
+          <th scope="col">Keeps</th>
+          <th scope="col">Span-legal</th>
+          <th scope="col">Why not</th>
+          <th scope="col">Head-role note</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+  </div>
+</section>
+
+<section id="receipts-section">
+  <div class="wrap">
+    <h2>3. Receipts</h2>
+
+    <div class="sep-note">
+      <p style="margin:0 0 6px;"><strong>Everything in section 2 is computed from the array you pasted.</strong> Nothing below feeds into it.</p>
+      <p style="margin:0;">The blocks below are dated quotes from vendor documentation, reproduced so you can re-check them yourself. Vendor docs change. If a quote here goes stale, that does not make the computation above wrong - it means this page needs a new quote.</p>
+    </div>
+
+    <div class="receipt">
+      <h3>Results must immediately follow their call, with nothing in between</h3>
+      <p class="stamp">Anthropic, Handle tool calls. Checked <span class="check-date"></span>.</p>
+      <blockquote class="quote">"Tool result blocks must immediately follow their corresponding tool use blocks in the message history. You cannot include any messages between the assistant's tool use message and the user's tool result message."</blockquote>
+      <p class="f-src">The same page names the error string you get when this is violated: "If you receive an error like <span class="mono">tool_use ids were found without tool_result blocks immediately after</span>, check that your tool results are formatted correctly." <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls" target="_blank" rel="noopener">Source</a></p>
+    </div>
+
+    <div class="receipt">
+      <h3>Results come first in the content array, before any text</h3>
+      <p class="stamp">Anthropic, Handle tool calls. Checked <span class="check-date"></span>.</p>
+      <blockquote class="quote">"In the user message containing tool results, the tool_result blocks must come FIRST in the content array. Any text must come AFTER all tool results."</blockquote>
+      <blockquote class="quote">"If the assistant turn also called a server tool that has no result block yet, the user message must contain only tool_result blocks. Text after the results ends the turn early; for a server tool Claude called directly, the request then fails with a 400 error that names the unresolved server tool."</blockquote>
+      <p class="f-src">The page prints a JSON example labelled "For example, this will cause a 400 error:", with a text block preceding the tool_result, and marks the reverse order correct. <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls" target="_blank" rel="noopener">Source</a></p>
+    </div>
+
+    <div class="receipt">
+      <h3>A parallel fan-out is answered all at once, or not at all</h3>
+      <p class="stamp">Anthropic, Parallel tool use. Checked <span class="check-date"></span>.</p>
+      <blockquote class="quote">"Whichever strategy you use, return one tool_result for each tool_use block, all together in the next user message."</blockquote>
+      <blockquote class="quote">"If you choose not to run a particular call (for example, because you ran the batch sequentially and an earlier call failed), still return a tool_result for it with is_error: true and a brief explanation."</blockquote>
+      <p class="f-src">The troubleshooting section contrasts "Wrong: a separate user message for each tool result" with "Correct: all tool results together in a single user message", and says the wrong shape "teaches" the model to avoid parallel calls. This linter reports a split fan-out separately from a missing one, because the two fail differently. <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/parallel-tool-use" target="_blank" rel="noopener">Source</a></p>
+    </div>
+
+    <div class="receipt">
+      <h3>Thinking blocks: an API rule, on the most recent assistant message, not an opt-in</h3>
+      <p class="stamp">Anthropic, Errors and Thinking. Checked <span class="check-date"></span>.</p>
+      <blockquote class="quote">"If the most recent assistant message contains thinking or redacted_thinking blocks that were edited, reordered, filtered out, or reconstructed before being sent back to the API, the request returns a 400 invalid_request_error."</blockquote>
+      <blockquote class="quote">"thinking or redacted_thinking blocks in the latest assistant message cannot be modified. These blocks must remain as they were in the original response."</blockquote>
+      <blockquote class="quote">"With tool use, every thinking and redacted_thinking block from the assistant turn must be passed back exactly as received, including blocks whose thinking field is empty."</blockquote>
+      <p class="f-src">Three things follow, and each corrects a common mis-statement of this rule. It is an <strong>API rule returning 400 invalid_request_error</strong>, not an SDK convention. It binds on the <strong>most recent</strong> assistant message, not on every assistant turn. And it is <strong>not conditional on opting into extended thinking</strong>: the Thinking page states "On Claude Opus 5, Claude Sonnet 5, Claude Fable 5, Claude Mythos 5, and Claude Mythos Preview, thinking is already on: no configuration needed", so the blocks arrive whether or not you asked for them. <a href="https://platform.claude.com/docs/en/api/errors" target="_blank" rel="noopener">Errors</a> - <a href="https://platform.claude.com/docs/en/build-with-claude/thinking" target="_blank" rel="noopener">Thinking</a></p>
+    </div>
+
+    <div class="receipt">
+      <h3>Whether prior turns' thinking stays in context is model-dependent</h3>
+      <p class="stamp">Anthropic, Thinking. Checked <span class="check-date"></span>.</p>
+      <blockquote class="quote">"Keep all prior turns: Claude Opus 4.5 and later Opus models, Claude Sonnet 4.6 and later Sonnet models, Claude Fable 5, Claude Mythos 5, and Claude Mythos Preview."</blockquote>
+      <blockquote class="quote">"Keep the last turn only: earlier Opus and Sonnet models, and all Haiku models through Claude Haiku 4.5. When you pass older thinking blocks back, the API strips them automatically. You don't need to remove them yourself."</blockquote>
+      <blockquote class="quote">"On models that keep all prior turns, previous thinking blocks remain in context, count toward the window, and are billed as input tokens like the rest of the conversation history. On models that keep only the last turn, the API strips older thinking blocks automatically when you pass them back, so they don't consume window space or input tokens."</blockquote>
+      <p class="f-src">This is why the linter never tells you to strip old thinking blocks. On keep-all models they are live context you are paying for; on last-turn-only models the API drops them for you. Either way, hand-pruning is what breaks the most recent turn. <a href="https://platform.claude.com/docs/en/build-with-claude/thinking" target="_blank" rel="noopener">Source</a></p>
+    </div>
+
+    <div class="receipt">
+      <h3>Ending on an assistant message is a prefill</h3>
+      <p class="stamp">Anthropic, Errors. Checked <span class="check-date"></span>.</p>
+      <blockquote class="quote">"This model does not support assistant message prefill. The conversation must end with a user message."</blockquote>
+      <p class="f-src">Quoted from the 400 body shown on the errors page, under "Prefill not supported", which scopes it to "Claude 4.6 and later models and Claude Mythos Preview". <a href="https://platform.claude.com/docs/en/api/errors" target="_blank" rel="noopener">Source</a></p>
+    </div>
+
+    <div class="receipt" style="border-left-color: var(--suspect);">
+      <h3>The user-role head rule: empirically observed, undocumented</h3>
+      <p class="stamp">Third-party bug tracker, not vendor documentation. Checked <span class="check-date"></span>.</p>
+      <p style="margin:6px 0 0;">A widely repeated claim is that the surviving head of a trimmed conversation must begin with a <code>user</code> turn. <strong>This linter does not treat that as a legality rule</strong>, because it appears in no current primary Anthropic source. Checked on <span class="check-date"></span>: it is not in the Messages API <code>messages</code> parameter description, not on the errors page, and not in the Amazon Bedrock mirror of the Messages API.</p>
+      <p style="margin:8px 0 0;">What does exist is a runtime error string, observed and pasted into a public bug report on 2024-03-16 against <code>api.anthropic.com</code> with HTTP 400 and <code>invalid_request_error</code>:</p>
+      <blockquote class="quote mono">messages: first message must use the "user" role</blockquote>
+      <p class="f-src">Reported in lobehub/lobehub issue 1601, opened 2024-03-16. The reporter's summary: "Seems like Anthropic API isn't really happy when you're sending first message under the assistant role." Treat this as behavior someone hit, not as a contract. <a href="https://github.com/lobehub/lobehub/issues/1601" target="_blank" rel="noopener">Source</a></p>
+      <p class="f-src" style="margin-top:10px;">The truncation map therefore reports head role as a <em>separate advisory column</em>, never as the SAFE / UNSAFE verdict. Note also that this rule and the documented merge rule are <strong>orthogonal, not contradictory</strong>: "Consecutive user or assistant turns in your request will be combined into a single turn" is about collapsing adjacent same-role turns, and says nothing about which role may lead. <a href="https://platform.claude.com/docs/en/api/messages" target="_blank" rel="noopener">Messages API parameter description</a></p>
+    </div>
+  </div>
+</section>
+
+<section id="limits-section">
+  <div class="wrap">
+    <h2>4. What this tool does not do</h2>
+    <ul class="plain">
+      <li>It does not validate tool <code>input</code> against your <code>input_schema</code>. A schema-invalid input is a different failure from a structurally broken transcript.</li>
+      <li>It does not count tokens or decide what your context budget should be. It tells you where a cut is structurally safe, not where a cut is a good idea.</li>
+      <li>It cannot tell you whether a missing thinking block was filtered out by your code or was never generated. Adaptive thinking can skip thinking on a simple request, so an absent block is reported as a <span class="badge suspect">suspect</span>, never as a verdict.</li>
+      <li>It does not know your model. Rules whose scope is model-dependent are labelled as such rather than applied blindly.</li>
+      <li>It does not model server tools. The results-first rule is checked for client tool round trips only; if the same assistant turn also left a <code>server_tool_use</code> unresolved, the documentation says that user message must carry <em>nothing but</em> <code>tool_result</code> blocks, and this linter will not catch trailing text in that narrower case.</li>
+      <li>It covers the Anthropic Messages API only. OpenAI's Chat Completions uses separate <code>role: "tool"</code> messages and the Responses API uses flat <code>function_call_output</code> items keyed by <code>call_id</code>; neither has the fan-out atomicity constraint that this tool exists to check, so there is deliberately no shape auto-detect here.</li>
+      <li>A clean report means the transcript is structurally well-formed. It is not a promise that the API will accept it.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <nav>
+      <a href="https://elitesystem.ai">An elitesystem.ai tool</a>
+      <a href="https://github.com/0xelitesystem/llm-message-array-linter">Source on GitHub</a>
+      <a href="https://0xelitesystem.github.io/">More tools</a>
+    </nav>
+    <p style="margin:0;">Companion tools that also eat a real request body: <a href="https://0xelitesystem.github.io/prompt-cache-inspector/">Prompt Cache Inspector</a> (where the cached prefix broke) and <a href="https://0xelitesystem.github.io/llm-stream-inspector/">LLM Stream Inspector</a> (what the SSE stream actually sent). MIT licensed.</p>
+  </div>
+</footer>
+
+<script>
+'use strict';
+
+/* ------------------------------------------------------------------ *
+ * Constants
+ * ------------------------------------------------------------------ */
+
+var VERIFIED_ON = '2026-08-09';
+
+var SOURCES = Object.create(null);
+SOURCES.immediate = {
+  label: 'Documented: results must immediately follow their call',
+  url: 'https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls'
+};
+SOURCES.ordering = {
+  label: 'Documented: tool_result blocks come first in the content array',
+  url: 'https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls'
+};
+SOURCES.fanout = {
+  label: 'Documented: one tool_result per tool_use, all in the next user message',
+  url: 'https://platform.claude.com/docs/en/agents-and-tools/tool-use/parallel-tool-use'
+};
+SOURCES.split = {
+  label: 'Documented: all results together in a single user message',
+  url: 'https://platform.claude.com/docs/en/agents-and-tools/tool-use/parallel-tool-use'
+};
+SOURCES.thinking = {
+  label: 'Documented: 400 if the latest assistant message thinking blocks were modified',
+  url: 'https://platform.claude.com/docs/en/api/errors'
+};
+SOURCES.retention = {
+  label: 'Documented: prior-turn thinking retention is model-dependent',
+  url: 'https://platform.claude.com/docs/en/build-with-claude/thinking'
+};
+SOURCES.prefill = {
+  label: 'Documented: assistant prefill unsupported on Claude 4.6 and later',
+  url: 'https://platform.claude.com/docs/en/api/errors'
+};
+SOURCES.shape = {
+  label: 'Documented: each message is an object with a role and a content',
+  url: 'https://platform.claude.com/docs/en/api/messages'
+};
+SOURCES.systemRole = {
+  label: 'Documented: mid-conversation system messages are model-gated',
+  url: 'https://platform.claude.com/docs/en/api/messages'
+};
+
+var SEVERITY_RANK = Object.create(null);
+SEVERITY_RANK.error = 0;
+SEVERITY_RANK.suspect = 1;
+SEVERITY_RANK.warning = 2;
+SEVERITY_RANK.info = 3;
+
+/* ------------------------------------------------------------------ *
+ * Pure core. No document or window access below this line, in this
+ * block, until the UI section. Every function takes input and returns
+ * a result object.
+ * ------------------------------------------------------------------ */
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function pathOf(messageIndex, blockIndex) {
+  if (typeof blockIndex === 'number' && blockIndex >= 0) {
+    return 'messages[' + messageIndex + '].content[' + blockIndex + ']';
+  }
+  return 'messages[' + messageIndex + ']';
+}
+
+/**
+ * Accepts a bare JSON array of messages, or a full request body object
+ * carrying a `messages` array. Returns a result object; never throws.
+ */
+function parseMessagesInput(text) {
+  var out = { ok: false, messages: [], error: '', note: '' };
+  if (typeof text !== 'string' || text.trim() === '') {
+    out.error = 'Nothing to analyze. Paste a messages array, or a whole request body.';
+    return out;
+  }
+  var data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    out.error = 'Not valid JSON. ' + (err && err.message ? err.message : 'Parse failed.');
+    return out;
+  }
+  var msgs = null;
+  if (Array.isArray(data)) {
+    msgs = data;
+  } else if (isPlainObject(data) && Array.isArray(data.messages)) {
+    msgs = data.messages;
+    out.note = 'Read the "messages" array out of a full request body; other keys ignored.';
+  } else {
+    out.error = 'Expected a JSON array of messages, or an object with a "messages" array.';
+    return out;
+  }
+  if (msgs.length === 0) {
+    out.error = 'The messages array is empty.';
+    return out;
+  }
+  out.ok = true;
+  out.messages = msgs;
+  return out;
+}
+
+/**
+ * Flattens each message into a uniform row: role, and a block list where a
+ * plain string content becomes one text block.
+ */
+function normalizeMessages(messages) {
+  var rows = [];
+  var i;
+  var j;
+  for (i = 0; i < messages.length; i++) {
+    var raw = messages[i];
+    var row = { index: i, role: '', roleKnown: false, shape: 'invalid', blocks: [] };
+    if (!isPlainObject(raw)) {
+      rows.push(row);
+      continue;
+    }
+    row.role = typeof raw.role === 'string' ? raw.role : '';
+    row.roleKnown = row.role === 'user' || row.role === 'assistant';
+    var content = raw.content;
+    if (typeof content === 'string') {
+      row.shape = 'string';
+      row.blocks.push({ index: 0, type: 'text', raw: { type: 'text', text: content } });
+    } else if (Array.isArray(content)) {
+      row.shape = 'array';
+      for (j = 0; j < content.length; j++) {
+        var b = content[j];
+        var type = isPlainObject(b) && typeof b.type === 'string' ? b.type : '';
+        row.blocks.push({ index: j, type: type, raw: isPlainObject(b) ? b : {} });
+      }
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function makeFinding(severity, title, messageIndex, blockIndex, detail, sourceKey) {
+  return {
+    severity: severity,
+    title: title,
+    messageIndex: messageIndex,
+    blockIndex: typeof blockIndex === 'number' ? blockIndex : -1,
+    path: pathOf(messageIndex, blockIndex),
+    detail: detail,
+    sourceKey: sourceKey || ''
+  };
+}
+
+function countBlocksOfType(row, type) {
+  var n = 0;
+  var i;
+  for (i = 0; i < row.blocks.length; i++) {
+    if (row.blocks[i].type === type) { n++; }
+  }
+  return n;
+}
+
+function rowHasThinking(row) {
+  var i;
+  for (i = 0; i < row.blocks.length; i++) {
+    var t = row.blocks[i].type;
+    if (t === 'thinking' || t === 'redacted_thinking') { return true; }
+  }
+  return false;
+}
+
+/**
+ * Builds the truncation map. A cut at index i keeps messages[i..end].
+ * The cut is span-legal only when no surviving tool_result answers a
+ * tool_use that the cut would drop. That single condition is what makes
+ * cutting inside a parallel fan-out illegal, because the fan-out's
+ * results all reference a tool_use in the message before them.
+ */
+function buildTruncationMap(rows, toolUseById, toolResultsById) {
+  var pairs = [];
+  var id;
+  var k;
+  for (id in toolResultsById) {
+    if (!hasOwn(toolUseById, id)) { continue; }
+    var useAt = toolUseById[id].messageIndex;
+    var occurrences = toolResultsById[id];
+    for (k = 0; k < occurrences.length; k++) {
+      pairs.push({ id: id, useAt: useAt, resultAt: occurrences[k].messageIndex });
+    }
+  }
+
+  var points = [];
+  var i;
+  var p;
+  for (i = 0; i < rows.length; i++) {
+    var brokenIds = [];
+    for (p = 0; p < pairs.length; p++) {
+      if (pairs[p].resultAt >= i && pairs[p].useAt < i) {
+        if (brokenIds.indexOf(pairs[p].id) === -1) { brokenIds.push(pairs[p].id); }
+      }
+    }
+    points.push({
+      index: i,
+      role: rows[i].role,
+      keeps: rows.length - i,
+      legal: brokenIds.length === 0,
+      brokenIds: brokenIds,
+      headIsUser: rows[i].role === 'user'
+    });
+  }
+  return points;
+}
+
+/**
+ * Largest legal cut index at or before desiredStart, so the caller keeps
+ * at least as many messages as requested. Returns null when none exists.
+ */
+function nearestLegalCut(points, desiredStart) {
+  if (!Array.isArray(points) || points.length === 0) { return null; }
+  if (!Number.isFinite(desiredStart)) { return null; }
+  var target = Math.floor(desiredStart);
+  if (target < 0) { target = 0; }
+  if (target > points.length - 1) { target = points.length - 1; }
+  var i;
+  for (i = target; i >= 0; i--) {
+    if (points[i].legal) { return points[i]; }
+  }
+  return null;
+}
+
+/**
+ * Main analysis. Returns a result object; never throws on malformed input.
+ */
+function analyzeTranscript(messages) {
+  var result = {
+    ok: false,
+    messageCount: 0,
+    blockCount: 0,
+    findings: [],
+    spans: [],
+    cutPoints: [],
+    rows: [],
+    counts: { error: 0, suspect: 0, warning: 0, info: 0 },
+    firstBreakingPath: null
+  };
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return result;
+  }
+
+  var rows = normalizeMessages(messages);
+  var n = rows.length;
+  var findings = [];
+  var toolUseById = Object.create(null);
+  var toolResultsById = Object.create(null);
+  var blockCount = 0;
+  var i;
+  var j;
+
+  /* Pass 1: index every block, and catch per-message shape problems. */
+  for (i = 0; i < n; i++) {
+    var row = rows[i];
+    if (row.shape === 'invalid') {
+      findings.push(makeFinding('error', 'Message is not a valid message object', i, -1,
+        'Each entry in messages must be an object with a "role" and a "content" that is either a string or an array of content blocks.',
+        'shape'));
+      continue;
+    }
+    if (!row.roleKnown) {
+      if (row.role === 'system') {
+        findings.push(makeFinding('info', 'Mid-conversation system message', i, -1,
+          'A "system" role inside the messages array is supported on some models only. This linter treats it as a turn that carries no tool blocks, and it does count as a message between a tool_use and its tool_result.',
+          'systemRole'));
+      } else {
+        findings.push(makeFinding('error', 'Unrecognized role "' + row.role + '"', i, -1,
+          'Role must be "user" or "assistant". A "system" role is model-gated. Anything else is rejected.',
+          'shape'));
+      }
+    }
+
+    blockCount += row.blocks.length;
+
+    var firstNonResult = -1;
+    var lastResult = -1;
+
+    for (j = 0; j < row.blocks.length; j++) {
+      var blk = row.blocks[j];
+
+      if (blk.type === '') {
+        findings.push(makeFinding('error', 'Content block has no "type"', i, j,
+          'Every content block needs a string "type" field.', 'shape'));
+      }
+
+      if (blk.type === 'tool_use') {
+        if (row.role !== 'assistant') {
+          findings.push(makeFinding('error', 'tool_use block in a ' + (row.role || 'roleless') + ' message', i, j,
+            'tool_use blocks belong to assistant messages. User messages carry tool_result blocks.', 'shape'));
+        }
+        var useId = typeof blk.raw.id === 'string' ? blk.raw.id : '';
+        if (useId === '') {
+          findings.push(makeFinding('error', 'tool_use block has no id', i, j,
+            'Without an id there is nothing for a tool_result to reference, so this call can never be answered.', 'immediate'));
+        } else if (hasOwn(toolUseById, useId)) {
+          findings.push(makeFinding('error', 'Duplicate tool_use id', i, j,
+            'The id ' + useId + ' was already used at ' + pathOf(toolUseById[useId].messageIndex, toolUseById[useId].blockIndex) + '. Ids must be unique so results can be matched.',
+            'immediate'));
+        } else {
+          toolUseById[useId] = {
+            messageIndex: i,
+            blockIndex: j,
+            name: typeof blk.raw.name === 'string' ? blk.raw.name : ''
+          };
+        }
+      }
+
+      if (blk.type === 'tool_result') {
+        if (row.role !== 'user') {
+          findings.push(makeFinding('error', 'tool_result block in a ' + (row.role || 'roleless') + ' message', i, j,
+            'tool_result blocks belong to user messages. The API models a tool round trip as assistant tool_use followed by user tool_result.', 'shape'));
+        }
+        var refId = typeof blk.raw.tool_use_id === 'string' ? blk.raw.tool_use_id : '';
+        if (refId === '') {
+          findings.push(makeFinding('error', 'tool_result block has no tool_use_id', i, j,
+            'A tool_result must name the tool_use id it answers.', 'immediate'));
+        } else {
+          if (!hasOwn(toolResultsById, refId)) { toolResultsById[refId] = []; }
+          toolResultsById[refId].push({ messageIndex: i, blockIndex: j, id: refId });
+        }
+        lastResult = j;
+      } else if (firstNonResult === -1) {
+        firstNonResult = j;
+      }
+    }
+
+    /* Documented ordering rule: results first, any text after. */
+    if (lastResult > -1 && firstNonResult > -1 && firstNonResult < lastResult) {
+      findings.push(makeFinding('error', 'Content before tool_result in the same user message', i, firstNonResult,
+        'This ' + (rows[i].blocks[firstNonResult].type || 'untyped') + ' block sits before a tool_result at content index ' + lastResult +
+        '. The documentation prints exactly this shape under the heading "this will cause a 400 error". Move every tool_result to the front of the content array.',
+        'ordering'));
+    }
+  }
+
+  /* Pass 2: duplicate results, and results that answer nothing. */
+  var rid;
+  for (rid in toolResultsById) {
+    var occ = toolResultsById[rid];
+    if (occ.length > 1) {
+      findings.push(makeFinding('error', 'Duplicate tool_result for one tool_use', occ[1].messageIndex, occ[1].blockIndex,
+        'The id ' + rid + ' is answered ' + occ.length + ' times. Exactly one tool_result per tool_use.', 'fanout'));
+    }
+    if (!hasOwn(toolUseById, rid)) {
+      findings.push(makeFinding('error', 'Orphaned tool_result: no matching tool_use', occ[0].messageIndex, occ[0].blockIndex,
+        'tool_use_id ' + rid + ' matches no tool_use anywhere in this array. This is the classic symptom of history trimming that dropped the assistant turn but kept the user turn that answers it.',
+        'immediate'));
+    } else {
+      var useRef = toolUseById[rid];
+      var q;
+      for (q = 0; q < occ.length; q++) {
+        if (occ[q].messageIndex <= useRef.messageIndex) {
+          findings.push(makeFinding('error', 'tool_result appears before its tool_use', occ[q].messageIndex, occ[q].blockIndex,
+            'The tool_use for ' + rid + ' is at ' + pathOf(useRef.messageIndex, useRef.blockIndex) + ', which is not earlier than this result.',
+            'immediate'));
+        }
+      }
+    }
+  }
+
+  /* Pass 3: spans, fan-out atomicity, placement. */
+  var spans = [];
+  for (i = 0; i < n; i++) {
+    var srow = rows[i];
+    var ids = [];
+    for (j = 0; j < srow.blocks.length; j++) {
+      if (srow.blocks[j].type === 'tool_use') {
+        var sid = typeof srow.blocks[j].raw.id === 'string' ? srow.blocks[j].raw.id : '';
+        if (sid !== '') { ids.push(sid); }
+      }
+    }
+    if (ids.length === 0) { continue; }
+
+    var span = {
+      assistantIndex: i,
+      ids: ids,
+      fanout: ids.length,
+      answered: [],
+      missing: [],
+      resultMessageIndices: [],
+      status: 'open'
+    };
+
+    var m;
+    for (m = 0; m < ids.length; m++) {
+      var oneId = ids[m];
+      var found = null;
+      if (hasOwn(toolResultsById, oneId)) {
+        var list = toolResultsById[oneId];
+        var t;
+        for (t = 0; t < list.length; t++) {
+          if (list[t].messageIndex > i) { found = list[t]; break; }
+        }
+      }
+      if (found === null) {
+        span.missing.push(oneId);
+      } else {
+        span.answered.push(oneId);
+        if (span.resultMessageIndices.indexOf(found.messageIndex) === -1) {
+          span.resultMessageIndices.push(found.messageIndex);
+        }
+      }
+    }
+
+    var isTail = (i === n - 1);
+
+    /* Anchor unanswered-call findings at the first tool_use block that has
+       no result, so the report names an exact block and not just a message. */
+    var firstMissingBlock = -1;
+    if (span.missing.length > 0 && hasOwn(toolUseById, span.missing[0]) &&
+        toolUseById[span.missing[0]].messageIndex === i) {
+      /* Only borrow a block index from this same message. With a duplicate id,
+         the indexed tool_use can live in a different message, and pointing at
+         its block index here would name a block that does not exist. */
+      firstMissingBlock = toolUseById[span.missing[0]].blockIndex;
+    }
+
+    if (span.missing.length === span.fanout) {
+      span.status = isTail ? 'pending-tail' : 'unanswered';
+      if (isTail) {
+        findings.push(makeFinding('error', 'Array ends on an assistant turn with ' + span.fanout + ' unanswered tool_use block' + (span.fanout === 1 ? '' : 's'), i, firstMissingBlock,
+          'Sending this array as-is asks the model to continue from an assistant turn whose tool calls were never answered. Append one user message containing a tool_result for every id: ' + ids.join(', ') + '.',
+          'immediate'));
+      } else {
+        findings.push(makeFinding('error', 'Orphaned tool_use: no tool_result anywhere for this call', i, firstMissingBlock,
+          'None of ' + ids.join(', ') + ' is answered later in the array. The next message is ' +
+          (i + 1 < n ? 'a ' + (rows[i + 1].role || 'roleless') + ' message at messages[' + (i + 1) + ']' : 'absent') + '.',
+          'immediate'));
+      }
+    } else if (span.missing.length > 0) {
+      span.status = 'partial';
+      findings.push(makeFinding('error',
+        'Partially answered parallel fan-out: ' + span.answered.length + ' of ' + span.fanout + ' answered', i, firstMissingBlock,
+        'This block is the first tool_use in the fan-out with no tool_result. Unanswered ids: ' + span.missing.join(', ') +
+        '. Each individual block here is well-formed, which is why a per-block validator passes and the request still fails. Return one tool_result for every tool_use in the fan-out, together in the next user message; for a call you chose not to run, return a tool_result with is_error true rather than dropping it.',
+        'fanout'));
+    } else {
+      span.status = 'closed';
+    }
+
+    /* Placement: everything answered must sit in the message right after. */
+    var badPlacement = [];
+    var r;
+    for (r = 0; r < span.resultMessageIndices.length; r++) {
+      if (span.resultMessageIndices[r] !== i + 1) { badPlacement.push(span.resultMessageIndices[r]); }
+    }
+    if (badPlacement.length > 0) {
+      var intervening = [];
+      var v;
+      for (v = i + 1; v < badPlacement[0]; v++) {
+        /* A message that carries part of this same fan-out is not "intervening";
+           it is a split result, reported separately below. */
+        if (span.resultMessageIndices.indexOf(v) === -1) { intervening.push('messages[' + v + ']'); }
+      }
+      findings.push(makeFinding('error', 'tool_result is not in the message immediately after its tool_use', badPlacement[0], -1,
+        'Results for the span opened at messages[' + i + '] land at messages[' + badPlacement.join('], messages[') + ']. ' +
+        (intervening.length > 0
+          ? 'Intervening message' + (intervening.length === 1 ? '' : 's') + ': ' + intervening.join(', ') + '. Nothing may sit between the tool_use message and the tool_result message.'
+          : 'Results must land at messages[' + (i + 1) + '].'),
+        'immediate'));
+    }
+    if (span.resultMessageIndices.length > 1) {
+      findings.push(makeFinding('error', 'Parallel fan-out split across ' + span.resultMessageIndices.length + ' user messages', i, -1,
+        'Results for this fan-out are spread over messages[' + span.resultMessageIndices.join('], messages[') + ']. All results belong together in a single user message; a separate message per result also trains the model away from making parallel calls at all.',
+        'split'));
+    }
+
+    spans.push(span);
+  }
+
+  /* Pass 4: trailing assistant turn is a prefill. */
+  if (rows[n - 1].role === 'assistant') {
+    findings.push(makeFinding('error', 'Conversation ends with an assistant message', n - 1, -1,
+      'On Claude 4.6 and later, a trailing assistant message is treated as a prefill and rejected. The 400 body reads: "This model does not support assistant message prefill. The conversation must end with a user message."',
+      'prefill'));
+  }
+
+  /* Pass 5: thinking blocks on the most recent assistant message. */
+  var lastAssistant = -1;
+  for (i = n - 1; i >= 0; i--) {
+    if (rows[i].role === 'assistant') { lastAssistant = i; break; }
+  }
+  if (lastAssistant >= 0) {
+    var la = rows[lastAssistant];
+    var thinkingCount = 0;
+    for (j = 0; j < la.blocks.length; j++) {
+      var tb = la.blocks[j];
+      if (tb.type === 'thinking') {
+        thinkingCount++;
+        var sig = typeof tb.raw.signature === 'string' ? tb.raw.signature : '';
+        if (sig === '') {
+          findings.push(makeFinding('error', 'thinking block on the most recent assistant message has no signature', lastAssistant, j,
+            'A thinking block returned by the API always carries a signature. A block without one was reconstructed or hand-built, and the request returns 400 invalid_request_error. Echo the block exactly as received, including when its thinking text is empty.',
+            'thinking'));
+        }
+      } else if (tb.type === 'redacted_thinking') {
+        thinkingCount++;
+        var dat = typeof tb.raw.data === 'string' ? tb.raw.data : '';
+        if (dat === '') {
+          findings.push(makeFinding('error', 'redacted_thinking block on the most recent assistant message has no data', lastAssistant, j,
+            'The data field is opaque and must be passed back unchanged. An empty or missing data field means the block was rebuilt rather than echoed.',
+            'thinking'));
+        }
+      }
+    }
+
+    var earlierThinking = false;
+    var earlierThinkingIndex = -1;
+    for (i = 0; i < n; i++) {
+      if (i !== lastAssistant && rows[i].role === 'assistant' && rowHasThinking(rows[i])) {
+        earlierThinking = true;
+        earlierThinkingIndex = i;
+        break;
+      }
+    }
+
+    if (thinkingCount > 0) {
+      findings.push(makeFinding('info', 'Most recent assistant message carries ' + thinkingCount + ' thinking block' + (thinkingCount === 1 ? '' : 's'), lastAssistant, -1,
+        'These must go back byte-identical: not edited, not reordered, not partially dropped, not rebuilt. The rule binds on this message only, not on every assistant turn, and it applies whether or not you asked for thinking.',
+        'thinking'));
+    } else if (earlierThinking && countBlocksOfType(la, 'tool_use') > 0) {
+      findings.push(makeFinding('suspect', 'Most recent assistant message has tool_use but no thinking block, while earlier turns have one', lastAssistant, -1,
+        'This is the shape you get when code filters content blocks by type before resending and drops thinking. It is also the shape you get legitimately when adaptive thinking skipped this turn. Not decidable from the array alone: check whether your resend path filters block types.',
+        'thinking'));
+    }
+
+    if (earlierThinking) {
+      findings.push(makeFinding('info', 'Prior-turn thinking blocks are present: do not hand-prune them', earlierThinkingIndex, -1,
+        'Whether prior turns stay in context is model-dependent. On keep-all models they remain in context and are billed as input tokens; on last-turn-only models the API strips them for you when you pass them back. Either way, pruning them yourself is what breaks the most recent turn.',
+        'retention'));
+    }
+  }
+
+  /* Sort: severity first, then position in the array. */
+  findings.sort(function (a, b) {
+    var ra = hasOwn(SEVERITY_RANK, a.severity) ? SEVERITY_RANK[a.severity] : 9;
+    var rb = hasOwn(SEVERITY_RANK, b.severity) ? SEVERITY_RANK[b.severity] : 9;
+    if (ra !== rb) { return ra - rb; }
+    if (a.messageIndex !== b.messageIndex) { return a.messageIndex - b.messageIndex; }
+    return a.blockIndex - b.blockIndex;
+  });
+
+  var counts = { error: 0, suspect: 0, warning: 0, info: 0 };
+  var f;
+  for (f = 0; f < findings.length; f++) {
+    if (hasOwn(counts, findings[f].severity)) { counts[findings[f].severity] += 1; }
+  }
+
+  var firstBreaking = null;
+  for (f = 0; f < findings.length; f++) {
+    if (findings[f].severity === 'error') { firstBreaking = findings[f].path; break; }
+  }
+
+  result.ok = true;
+  result.messageCount = n;
+  result.blockCount = blockCount;
+  result.rows = rows;
+  result.spans = spans;
+  result.findings = findings;
+  result.counts = counts;
+  result.firstBreakingPath = firstBreaking;
+  result.cutPoints = buildTruncationMap(rows, toolUseById, toolResultsById);
+  return result;
+}
+
+/**
+ * Renders a plain-text report. Pure: string in, string out.
+ */
+function formatFindingsReport(analysis) {
+  if (!analysis || !analysis.ok) { return 'No analysis.'; }
+  var lines = [];
+  lines.push('LLM Message Array Linter report');
+  lines.push('Messages: ' + analysis.messageCount + '  Blocks: ' + analysis.blockCount + '  Spans: ' + analysis.spans.length);
+  lines.push('Errors: ' + analysis.counts.error + '  Suspect: ' + analysis.counts.suspect +
+    '  Warnings: ' + analysis.counts.warning + '  Info: ' + analysis.counts.info);
+  if (analysis.firstBreakingPath) {
+    lines.push('First breaking block: ' + analysis.firstBreakingPath);
+  } else {
+    lines.push('First breaking block: none');
+  }
+  lines.push('');
+  var i;
+  for (i = 0; i < analysis.findings.length; i++) {
+    var f = analysis.findings[i];
+    lines.push('[' + f.severity.toUpperCase() + '] ' + f.path + ' - ' + f.title);
+    lines.push('    ' + f.detail);
+  }
+  lines.push('');
+  var legal = [];
+  for (i = 0; i < analysis.cutPoints.length; i++) {
+    if (analysis.cutPoints[i].legal) { legal.push(analysis.cutPoints[i].index); }
+  }
+  lines.push('Span-legal cut indices (keep messages[i..end]): ' + (legal.length ? legal.join(', ') : 'none'));
+  return lines.join('\n');
+}
+
+function formatCutList(analysis) {
+  if (!analysis || !analysis.ok) { return ''; }
+  var out = [];
+  var i;
+  for (i = 0; i < analysis.cutPoints.length; i++) {
+    var c = analysis.cutPoints[i];
+    if (!c.legal) { continue; }
+    out.push(String(c.index) + '\t' + (c.role || 'unknown') + '\tkeeps ' + c.keeps +
+      (c.headIsUser ? '' : '\thead is not a user turn (advisory, see receipts)'));
+  }
+  return out.length ? out.join('\n') : 'No span-legal cut point.';
+}
+
+/* ------------------------------------------------------------------ *
+ * Samples
+ * ------------------------------------------------------------------ */
+
+var SAMPLES = [
+  {
+    key: 'partial-fanout',
+    label: 'Partially answered parallel fan-out (the hard case)',
+    messages: [
+      { role: 'user', content: 'Weather and local time for Paris and Tokyo?' },
+      { role: 'assistant', content: [
+        { type: 'text', text: 'Checking both cities.' },
+        { type: 'tool_use', id: 'toolu_fake_weather_paris', name: 'get_weather', input: { city: 'Paris' } },
+        { type: 'tool_use', id: 'toolu_fake_weather_tokyo', name: 'get_weather', input: { city: 'Tokyo' } },
+        { type: 'tool_use', id: 'toolu_fake_time_paris', name: 'get_time', input: { city: 'Paris' } },
+        { type: 'tool_use', id: 'toolu_fake_time_tokyo', name: 'get_time', input: { city: 'Tokyo' } }
+      ] },
+      { role: 'user', content: [
+        { type: 'text', text: 'Here are the results:' },
+        { type: 'tool_result', tool_use_id: 'toolu_fake_weather_paris', content: '15 C' },
+        { type: 'tool_result', tool_use_id: 'toolu_fake_weather_tokyo', content: '22 C' },
+        { type: 'tool_result', tool_use_id: 'toolu_fake_time_paris', content: '18:30' }
+      ] }
+    ]
+  },
+  {
+    key: 'clean',
+    label: 'Clean two-span transcript (shows a legal cut)',
+    messages: [
+      { role: 'user', content: 'What is the weather in Paris?' },
+      { role: 'assistant', content: [
+        { type: 'thinking', thinking: '', signature: 'FAKE_SIG_A' },
+        { type: 'tool_use', id: 'toolu_fake_w1', name: 'get_weather', input: { city: 'Paris' } }
+      ] },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu_fake_w1', content: '15 C' }
+      ] },
+      { role: 'assistant', content: [{ type: 'text', text: 'It is 15 C in Paris.' }] },
+      { role: 'user', content: 'And Tokyo?' },
+      { role: 'assistant', content: [
+        { type: 'thinking', thinking: '', signature: 'FAKE_SIG_B' },
+        { type: 'tool_use', id: 'toolu_fake_w2', name: 'get_weather', input: { city: 'Tokyo' } }
+      ] },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu_fake_w2', content: '22 C' }
+      ] }
+    ]
+  },
+  {
+    key: 'orphan',
+    label: 'Orphaned tool_result and an intervening message',
+    messages: [
+      { role: 'user', content: 'Search the changelog for the retry fix.' },
+      { role: 'assistant', content: [
+        { type: 'tool_use', id: 'toolu_fake_s1', name: 'search_docs', input: { q: 'retry fix' } }
+      ] },
+      { role: 'user', content: 'Actually, never mind that.' },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu_fake_s1', content: '3 hits' },
+        { type: 'tool_result', tool_use_id: 'toolu_fake_dropped_by_trimmer', content: 'stale result' }
+      ] }
+    ]
+  },
+  {
+    key: 'thinking-rebuilt',
+    label: 'Rebuilt thinking block on the most recent assistant turn',
+    messages: [
+      { role: 'user', content: 'Run the build, then the tests.' },
+      { role: 'assistant', content: [
+        { type: 'thinking', thinking: 'Start with the build.', signature: 'FAKE_SIG_1' },
+        { type: 'tool_use', id: 'toolu_fake_b1', name: 'run_build', input: {} }
+      ] },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu_fake_b1', content: 'exit 0' }
+      ] },
+      { role: 'assistant', content: [
+        { type: 'thinking', thinking: 'Build passed, now the tests.' },
+        { type: 'tool_use', id: 'toolu_fake_b2', name: 'run_tests', input: {} }
+      ] },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu_fake_b2', content: '12 passed' }
+      ] }
+    ]
+  },
+  {
+    key: 'trimmer-damage',
+    label: 'Trimmer damage: split fan-out, orphaned call, trailing prefill',
+    messages: [
+      { role: 'user', content: 'Read both config files and diff them.' },
+      { role: 'assistant', content: [
+        { type: 'tool_use', id: 'toolu_fake_cfg_prod', name: 'read_config', input: { env: 'prod' } },
+        { type: 'tool_use', id: 'toolu_fake_cfg_stage', name: 'read_config', input: { env: 'staging' } }
+      ] },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu_fake_cfg_prod', content: 'retries=5' }
+      ] },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu_fake_cfg_stage', content: 'retries=2' }
+      ] },
+      { role: 'assistant', content: [
+        { type: 'tool_use', id: 'toolu_fake_lint', name: 'lint_config', input: {} }
+      ] },
+      { role: 'user', content: 'Anything else worth flagging?' },
+      { role: 'assistant', content: [{ type: 'text', text: 'One more thing:' }] }
+    ]
+  },
+  {
+    key: 'thinking-missing',
+    label: 'Thinking present on an earlier turn, absent on the latest (suspect)',
+    messages: [
+      { role: 'user', content: 'Deploy to staging and health check it.' },
+      { role: 'assistant', content: [
+        { type: 'thinking', thinking: 'Plan the deploy.', signature: 'FAKE_SIG_X' },
+        { type: 'tool_use', id: 'toolu_fake_d1', name: 'deploy', input: { env: 'staging' } }
+      ] },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu_fake_d1', content: 'deployed' }
+      ] },
+      { role: 'assistant', content: [
+        { type: 'tool_use', id: 'toolu_fake_d2', name: 'healthcheck', input: {} }
+      ] },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu_fake_d2', content: '200 OK' }
+      ] }
+    ]
+  }
+];
+
+/* ------------------------------------------------------------------ *
+ * UI. Everything below touches the DOM.
+ * ------------------------------------------------------------------ */
+
+(function () {
+  var root = document.documentElement;
+  var byId = function (id) { return document.getElementById(id); };
+
+  var el = function (tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) { node.className = className; }
+    if (text !== undefined && text !== null) { node.textContent = String(text); }
+    return node;
+  };
+
+  var lastAnalysis = null;
+
+  /* ---- theme ---- */
+  var toggle = byId('theme-toggle');
+
+  function currentTheme() {
+    return root.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  }
+
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      root.setAttribute('data-theme', 'light');
+    } else {
+      root.setAttribute('data-theme', 'dark');
+    }
+    toggle.textContent = theme === 'light' ? 'Switch to dark' : 'Switch to light';
+    toggle.setAttribute('aria-pressed', theme === 'light' ? 'true' : 'false');
+  }
+
+  applyTheme(currentTheme());
+
+  toggle.addEventListener('click', function () {
+    var next = currentTheme() === 'light' ? 'dark' : 'light';
+    applyTheme(next);
+    try { window.localStorage.setItem('lmal-theme', next); } catch (err) { /* ignore */ }
+  });
+
+  /* ---- date stamps ---- */
+  var stamps = document.querySelectorAll('.check-date');
+  var s;
+  for (s = 0; s < stamps.length; s++) { stamps[s].textContent = VERIFIED_ON; }
+
+  /* ---- samples ---- */
+  var sampleSelect = byId('sample-select');
+  var k;
+  for (k = 0; k < SAMPLES.length; k++) {
+    var opt = el('option', null, SAMPLES[k].label);
+    opt.value = SAMPLES[k].key;
+    sampleSelect.appendChild(opt);
+  }
+
+  var input = byId('messages-input');
+
+  byId('load-sample').addEventListener('click', function () {
+    var chosen = null;
+    var q;
+    for (q = 0; q < SAMPLES.length; q++) {
+      if (SAMPLES[q].key === sampleSelect.value) { chosen = SAMPLES[q]; break; }
+    }
+    if (!chosen) { chosen = SAMPLES[0]; }
+    input.value = JSON.stringify(chosen.messages, null, 2);
+    run();
+  });
+
+  byId('clear-input').addEventListener('click', function () {
+    input.value = '';
+    lastAnalysis = null;
+    byId('parse-error').classList.add('hidden');
+    byId('parse-note').textContent = '';
+    byId('results').classList.add('hidden');
+    byId('empty-state').classList.remove('hidden');
+    byId('keep-last-out').classList.add('hidden');
+    input.focus();
+  });
+
+  byId('analyze').addEventListener('click', run);
+
+  /* ---- rendering ---- */
+
+  function renderVerdict(analysis) {
+    var box = byId('verdict');
+    box.replaceChildren();
+    box.className = 'verdict';
+    var headline = el('p', 'headline');
+    var sub = el('p', 'sub');
+
+    if (analysis.counts.error > 0) {
+      box.classList.add('bad');
+      headline.textContent = 'First breaking block: ' + (analysis.firstBreakingPath || 'unknown');
+      sub.textContent = analysis.counts.error + ' structural error' + (analysis.counts.error === 1 ? '' : 's') +
+        ' found across ' + analysis.messageCount + ' messages and ' + analysis.spans.length +
+        ' tool span' + (analysis.spans.length === 1 ? '' : 's') + '.';
+    } else if (analysis.counts.suspect > 0) {
+      headline.textContent = 'No structural error found, but there is something worth checking by hand.';
+      sub.textContent = analysis.counts.suspect + ' item' + (analysis.counts.suspect === 1 ? '' : 's') +
+        ' cannot be decided from the array alone. See the suspect finding below.';
+    } else {
+      box.classList.add('good');
+      headline.textContent = 'No structural error found.';
+      sub.textContent = 'All ' + analysis.spans.length + ' tool span' + (analysis.spans.length === 1 ? '' : 's') +
+        ' close cleanly. This means the transcript is well-formed, not that the API will accept it.';
+    }
+    box.appendChild(headline);
+    box.appendChild(sub);
+  }
+
+  function renderTiles(analysis) {
+    var box = byId('tiles');
+    box.replaceChildren();
+    var legal = 0;
+    var i;
+    for (i = 0; i < analysis.cutPoints.length; i++) {
+      if (analysis.cutPoints[i].legal) { legal++; }
+    }
+    var data = [
+      { n: analysis.messageCount, k: 'Messages', c: '' },
+      { n: analysis.blockCount, k: 'Content blocks', c: '' },
+      { n: analysis.spans.length, k: 'Tool spans', c: '' },
+      { n: analysis.counts.error, k: 'Errors', c: 'e' },
+      { n: analysis.counts.suspect, k: 'Suspect', c: 's' },
+      { n: legal, k: 'Legal cuts', c: 'g' }
+    ];
+    for (i = 0; i < data.length; i++) {
+      var tile = el('div', 'tile' + (data[i].c ? ' ' + data[i].c : ''));
+      tile.appendChild(el('div', 'n', data[i].n));
+      tile.appendChild(el('div', 'k', data[i].k));
+      box.appendChild(tile);
+    }
+  }
+
+  function renderFindings(analysis) {
+    var list = byId('findings-list');
+    list.replaceChildren();
+    if (analysis.findings.length === 0) {
+      var li0 = el('li', 'sev-info');
+      li0.appendChild(el('div', 'f-title', 'Nothing to report.'));
+      li0.appendChild(el('p', 'f-detail', 'Every span opens and closes, every id matches, and block ordering is correct.'));
+      list.appendChild(li0);
+      return;
+    }
+    var i;
+    for (i = 0; i < analysis.findings.length; i++) {
+      var f = analysis.findings[i];
+      var li = el('li', 'sev-' + f.severity);
+      var top = el('div', 'f-top');
+      top.appendChild(el('span', 'badge ' + f.severity, f.severity));
+      top.appendChild(el('span', 'path', f.path));
+      top.appendChild(el('span', 'f-title', f.title));
+      li.appendChild(top);
+      li.appendChild(el('p', 'f-detail', f.detail));
+      if (f.sourceKey && hasOwn(SOURCES, f.sourceKey)) {
+        var src = el('p', 'f-src');
+        src.appendChild(document.createTextNode(SOURCES[f.sourceKey].label + ' - '));
+        var a = el('a', null, 'source');
+        a.href = SOURCES[f.sourceKey].url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        src.appendChild(a);
+        li.appendChild(src);
+      }
+      list.appendChild(li);
+    }
+  }
+
+  function renderTimeline(analysis) {
+    var strip = byId('timeline');
+    strip.replaceChildren();
+
+    var opens = Object.create(null);
+    var closes = Object.create(null);
+    var i;
+    for (i = 0; i < analysis.spans.length; i++) {
+      opens[String(analysis.spans[i].assistantIndex)] = true;
+      var r;
+      for (r = 0; r < analysis.spans[i].resultMessageIndices.length; r++) {
+        closes[String(analysis.spans[i].resultMessageIndices[r])] = true;
+      }
+    }
+
+    var errorAt = Object.create(null);
+    for (i = 0; i < analysis.findings.length; i++) {
+      if (analysis.findings[i].severity === 'error' && analysis.findings[i].messageIndex >= 0) {
+        errorAt[String(analysis.findings[i].messageIndex)] = true;
+      }
+    }
+
+    for (i = 0; i < analysis.rows.length; i++) {
+      var row = analysis.rows[i];
+      var key = String(i);
+      var cls = 'tl-msg';
+      if (hasOwn(opens, key)) { cls += ' span-open'; }
+      if (hasOwn(closes, key)) { cls += ' span-close'; }
+      if (hasOwn(errorAt, key)) { cls += ' has-error'; }
+      var card = el('div', cls);
+      card.appendChild(el('div', 'tl-i', 'messages[' + i + ']'));
+      card.appendChild(el('div', 'tl-role', row.role || '(no role)'));
+      var ul = el('ul');
+      var j;
+      if (row.blocks.length === 0) {
+        ul.appendChild(el('li', null, '(no content blocks)'));
+      }
+      for (j = 0; j < row.blocks.length; j++) {
+        var b = row.blocks[j];
+        var text = '[' + j + '] ' + (b.type || 'untyped');
+        if (b.type === 'tool_use' && typeof b.raw.name === 'string' && b.raw.name !== '') {
+          text += ' ' + b.raw.name;
+        }
+        ul.appendChild(el('li', null, text));
+      }
+      card.appendChild(ul);
+      strip.appendChild(card);
+    }
+  }
+
+  function renderCuts(analysis, targetIndex) {
+    var tbody = byId('cuts-table').querySelector('tbody');
+    tbody.replaceChildren();
+    var i;
+    for (i = 0; i < analysis.cutPoints.length; i++) {
+      var c = analysis.cutPoints[i];
+      var tr = el('tr');
+      if (!c.legal) { tr.className = 'row-illegal'; }
+      if (typeof targetIndex === 'number' && targetIndex === c.index) {
+        tr.className = tr.className ? tr.className + ' row-target' : 'row-target';
+      }
+
+      var tdIdx = el('td', 'num');
+      tdIdx.appendChild(el('span', 'path', 'messages[' + c.index + '..]'));
+      tr.appendChild(tdIdx);
+
+      tr.appendChild(el('td', null, c.role || '(no role)'));
+      tr.appendChild(el('td', 'num', c.keeps));
+
+      var tdVerdict = el('td');
+      tdVerdict.appendChild(el('span', 'badge ' + (c.legal ? 'ok' : 'error'), c.legal ? 'safe' : 'unsafe'));
+      tr.appendChild(tdVerdict);
+
+      tr.appendChild(el('td', null, c.legal ? '-' :
+        'Drops the tool_use for ' + c.brokenIds.join(', ') + ' while keeping its tool_result.'));
+
+      tr.appendChild(el('td', null, c.headIsUser
+        ? 'Head is a user turn.'
+        : 'Head is a ' + (c.role || 'roleless') + ' turn. Undocumented, observed only. See receipts.'));
+
+      tbody.appendChild(tr);
+    }
+  }
+
+  function run() {
+    var errBox = byId('parse-error');
+    var noteBox = byId('parse-note');
+    errBox.classList.add('hidden');
+    errBox.textContent = '';
+    noteBox.textContent = '';
+    byId('keep-last-out').classList.add('hidden');
+
+    var parsed = parseMessagesInput(input.value);
+    if (!parsed.ok) {
+      lastAnalysis = null;
+      errBox.textContent = parsed.error;
+      errBox.classList.remove('hidden');
+      byId('results').classList.add('hidden');
+      byId('empty-state').classList.remove('hidden');
+      return;
+    }
+    if (parsed.note) { noteBox.textContent = parsed.note; }
+
+    var analysis;
+    try {
+      analysis = analyzeTranscript(parsed.messages);
+    } catch (err) {
+      lastAnalysis = null;
+      errBox.textContent = 'The linter could not analyze that input. ' +
+        (err && err.message ? err.message : 'Unexpected shape.');
+      errBox.classList.remove('hidden');
+      byId('results').classList.add('hidden');
+      byId('empty-state').classList.remove('hidden');
+      return;
+    }
+
+    if (!analysis.ok) {
+      lastAnalysis = null;
+      errBox.textContent = 'Nothing analyzable in that array.';
+      errBox.classList.remove('hidden');
+      byId('results').classList.add('hidden');
+      byId('empty-state').classList.remove('hidden');
+      return;
+    }
+
+    lastAnalysis = analysis;
+    byId('empty-state').classList.add('hidden');
+    byId('results').classList.remove('hidden');
+
+    renderVerdict(analysis);
+    renderTiles(analysis);
+    renderFindings(analysis);
+    renderTimeline(analysis);
+    renderCuts(analysis, null);
+
+    var keepInput = byId('keep-last');
+    keepInput.max = String(analysis.messageCount);
+    if (Number(keepInput.value) > analysis.messageCount) {
+      keepInput.value = String(analysis.messageCount);
+    }
+  }
+
+  /* ---- keep-last helper ---- */
+  byId('find-cut').addEventListener('click', function () {
+    var out = byId('keep-last-out');
+    if (!lastAnalysis) {
+      out.textContent = 'Analyze an array first.';
+      out.classList.remove('hidden');
+      return;
+    }
+    var wanted = Number(byId('keep-last').value);
+    if (!Number.isFinite(wanted) || wanted < 1) {
+      out.textContent = 'Enter a whole number of messages to keep, 1 or more.';
+      out.classList.remove('hidden');
+      return;
+    }
+    var desiredStart = lastAnalysis.messageCount - Math.floor(wanted);
+    if (desiredStart < 0) { desiredStart = 0; }
+    var point = nearestLegalCut(lastAnalysis.cutPoints, desiredStart);
+    if (point === null) {
+      out.textContent = 'No span-legal cut exists at or before messages[' + desiredStart + '].';
+      renderCuts(lastAnalysis, null);
+    } else {
+      var extra = point.index === desiredStart
+        ? 'That is exactly the cut you asked for.'
+        : 'The cut you asked for, messages[' + desiredStart + '..], lands inside a tool span, so this is the nearest legal cut that keeps at least ' + Math.floor(wanted) + ' messages.';
+      var headNote = point.headIsUser ? '' : ' Head is a ' + (point.role || 'roleless') + ' turn; see the receipts on that.';
+      out.textContent = 'Cut at messages[' + point.index + '..], keeping ' + point.keeps + ' messages. ' + extra + headNote;
+      renderCuts(lastAnalysis, point.index);
+    }
+    out.classList.remove('hidden');
+  });
+
+  /* ---- copy ---- */
+  function copyText(text, msgNode, label) {
+    function done(okay) {
+      msgNode.textContent = okay ? 'Copied' : 'Copy failed, select the text manually';
+      window.setTimeout(function () { msgNode.textContent = ''; }, 2200);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    } else {
+      done(false);
+    }
+    return label;
+  }
+
+  byId('copy-findings').addEventListener('click', function () {
+    var msg = byId('copy-findings-msg');
+    if (!lastAnalysis) { msg.textContent = 'Nothing to copy yet'; return; }
+    copyText(formatFindingsReport(lastAnalysis), msg, 'findings');
+  });
+
+  byId('copy-cuts').addEventListener('click', function () {
+    var msg = byId('copy-cuts-msg');
+    if (!lastAnalysis) { msg.textContent = 'Nothing to copy yet'; return; }
+    copyText(formatCutList(lastAnalysis), msg, 'cuts');
+  });
+})();
+</script>
+
+</body>
+</html>
