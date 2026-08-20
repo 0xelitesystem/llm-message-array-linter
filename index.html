@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -294,6 +294,41 @@ footer.site nav { display: flex; gap: 8px 18px; flex-wrap: wrap; margin: 0 0 8px
   .tile { flex: 1 1 100%; }
   body { font-size: 15px; }
 }
+</style>
+<style>
+/* elitesystem brand tokens: chrome only, meaning preserved */
+:root, :root[data-theme="dark"] {
+  --accent: #d4ff3a;
+  --accent-dim: #ffb454;
+  --bg: #0a0a0a;
+  --bg-raised: #111110;
+  --bg-sunken: #050505;
+  --border: #1f1f1d;
+  --border-strong: #2a2a27;
+  --error: #ff6450;
+  --info: #6fd3e0;
+  --ok: #7ddc7d;
+  --text: #e8e8e3;
+  --text-dim: #a8a8a3;
+  --warn: #ffb454;
+}
+:root[data-theme="light"] {
+  --accent: #2d6b00;
+  --accent-dim: #a05a00;
+  --bg: #e8ebef;
+  --bg-raised: #dee2e8;
+  --bg-sunken: #f4f5f8;
+  --border: #c8cdd5;
+  --border-strong: #aab0ba;
+  --error: #b8341a;
+  --info: #0f5c60;
+  --ok: #1a5c2e;
+  --text: #0a0a0a;
+  --text-dim: #2a2a27;
+  --warn: #a05a00;
+}
+:root { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
 </style>
 </head>
 <body>
