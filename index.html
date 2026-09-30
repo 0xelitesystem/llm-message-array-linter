@@ -310,6 +310,7 @@ footer.site nav { display: flex; gap: 8px 18px; flex-wrap: wrap; margin: 0 0 8px
   --ok: #7ddc7d;
   --text: #e8e8e3;
   --text-dim: #a8a8a3;
+  --text-faint: #898983;
   --warn: #ffb454;
 }
 :root[data-theme="light"] {
@@ -325,10 +326,14 @@ footer.site nav { display: flex; gap: 8px 18px; flex-wrap: wrap; margin: 0 0 8px
   --ok: #1a5c2e;
   --text: #0a0a0a;
   --text-dim: #2a2a27;
+  --text-faint: #5c5c56;
   --warn: #8a4d00;
 }
 :root { color-scheme: dark; }
 :root[data-theme="light"] { color-scheme: light; }
+/* Text on the amber primary button: dark on the dark-theme amber, white on the light-theme brown (WCAG 1.4.3). */
+button.primary { color: #0a0a0a; }
+:root[data-theme="light"] button.primary { color: #ffffff; }
 </style>
 </head>
 <body>
