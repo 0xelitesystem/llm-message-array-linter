@@ -2,9 +2,18 @@
 
 Paste the Anthropic `messages` array from a request that returned a 400 and get the exact block index that broke it, plus every index where the transcript can legally be truncated.
 
-## Live demo
+**Live demo:** https://0xelitesystem.github.io/llm-message-array-linter/
 
-https://0xelitesystem.github.io/llm-message-array-linter/
+## Use
+
+1. Paste the `messages` array (JSON) from the failing request, or pick a sample.
+2. Click Analyze.
+3. Read the findings, each anchored to a path such as `messages[1].content[3]`.
+4. Use the truncation map, or enter a Keep last value and click Find nearest legal cut, then copy findings or legal cut indices.
+
+## Why this exists
+
+A 400 from the Messages API rarely says which block broke the request, and a transcript is full of customer data you should not paste into a hosted validator. This is one HTML file with no tracking and no network calls that finds the breaking block and the safe truncation points locally, MIT licensed.
 
 ## Features
 
@@ -38,7 +47,20 @@ The core is a set of pure functions: `parseMessagesInput(text)`, `normalizeMessa
 
 Everything runs in your browser. The transcript you paste is never uploaded, logged, or transmitted; the page makes no network requests at all and loads no third-party resources. There is no API key, no backend, and no analytics. Transcripts routinely contain customer data and tool output from internal systems, which is exactly why this is a single static file you can read top to bottom, or save and open offline.
 
-The only thing stored is your light or dark theme preference, in `localStorage`.
+The only thing stored is your light or dark theme preference, in `localStorage`. The vendor source links in the page open external sites only when you click them.
+
+## Run locally
+
+```
+git clone https://github.com/0xelitesystem/llm-message-array-linter
+cd llm-message-array-linter
+```
+
+Open `index.html` in any modern browser. Or serve the folder with `python -m http.server` and visit http://localhost:8000.
+
+## Build
+
+No build step. The whole tool is one `index.html` with inline CSS and JavaScript and no dependencies.
 
 ## License
 
