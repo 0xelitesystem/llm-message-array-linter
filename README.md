@@ -71,4 +71,4 @@ MIT. See [LICENSE](LICENSE).
 - More tools: https://0xelitesystem.github.io/
 - Built by elitesystem.ai: https://elitesystem.ai
 
-Companion tools that also take a real request body as input: [Prompt Cache Inspector](https://0xelitesystem.github.io/prompt-cache-inspector/) finds where a cached prefix broke, and [LLM Stream Inspector](https://0xelitesystem.github.io/llm-stream-inspector/) diagnoses a raw SSE dump.
+Companion tools that also take a real request body as input: [Prompt Cache Inspector](https://0xelitesystem.github.io/prompt-cache-inspector/) finds where a cached prefix broke, and [LLM SSE Dump Reassembler](https://0xelitesystem.github.io/llm-sse-dump-reassembler/) diagnoses a raw SSE dump.
